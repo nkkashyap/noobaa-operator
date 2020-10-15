@@ -330,6 +330,7 @@ func (r *Reconciler) SetDesiredCoreApp() error {
 // the bucket name allowed for the credentials. nil is returned if cloud credentials are not supported
 func (r *Reconciler) ReconcileBackingStoreCredentials() error {
 	// Skip if joining another NooBaa
+	r.Logger.Info("Reconciling Backing Store Credentials")
 	if r.JoinSecret != nil {
 		return nil
 	}
@@ -339,6 +340,10 @@ func (r *Reconciler) ReconcileBackingStoreCredentials() error {
 	}
 	if util.IsAzurePlatform() {
 		return r.ReconcileAzureCredentials()
+	}
+	if util.IsIBMPlatform() {
+		r.Logger.Info("Platform: IBM Cloud")
+		return r.ReconcileIBMCredentials()
 	}
 	return r.ReconcileRGWCredentials()
 }
@@ -385,6 +390,15 @@ func (r *Reconciler) ReconcileRGWCredentials() error {
 		r.Logger.Errorf("got error on CephObjectstoreUser creation. error: %v", err)
 		return err
 	}
+	return nil
+}
+
+// ReconcileIBMCredentials currently credentials operator is not supporting IBM credential
+func (r *Reconciler) ReconcileIBMCredentials() error {
+	r.Logger.Info("Running in IBM. Expecting Secret: <ibm-cloud-cos-creds> under NS: <kube-system>")
+	r.IBMCloudCreds.Spec.SecretRef.Name = "ibm-cloud-cos-creds"
+	r.IBMCloudCreds.Spec.SecretRef.Namespace = "kube-system"
+	r.IBMCloudCreds.UID = "dummy-uid"
 	return nil
 }
 
