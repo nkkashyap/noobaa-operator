@@ -342,7 +342,6 @@ func (r *Reconciler) ReconcileBackingStoreCredentials() error {
 		return r.ReconcileAzureCredentials()
 	}
 	if util.IsIBMPlatform() {
-		r.Logger.Info("Platform: IBM Cloud")
 		return r.ReconcileIBMCredentials()
 	}
 	return r.ReconcileRGWCredentials()
@@ -393,9 +392,11 @@ func (r *Reconciler) ReconcileRGWCredentials() error {
 	return nil
 }
 
-// ReconcileIBMCredentials currently credentials operator is not supporting IBM credential
+// ReconcileIBMCredentials create dummy request
 func (r *Reconciler) ReconcileIBMCredentials() error {
-	r.Logger.Info("Running in IBM. Expecting Secret: <ibm-cloud-cos-creds> under NS: <kube-system>")
+	// Currently IBM Cloud is not supported by cloud credential operator
+	// In IKS / ROKS, the IBM COS HMAC keys will be provided through K8S Secret under kube-system namespace
+	r.Logger.Info("Running in IBM Cloud. Expecting Secret: <ibm-cloud-cos-creds> under NS: <kube-system>")
 	r.IBMCloudCreds.Spec.SecretRef.Name = "ibm-cloud-cos-creds"
 	r.IBMCloudCreds.Spec.SecretRef.Namespace = "kube-system"
 	r.IBMCloudCreds.UID = "dummy-uid"

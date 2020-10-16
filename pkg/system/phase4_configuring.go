@@ -530,7 +530,13 @@ func (r *Reconciler) prepareAWSBackingStore() error {
 }
 
 func (r *Reconciler) prepareIBMBackingStore() error {
-	r.Logger.Info("prepareIBMBackingStore")
+	r.Logger.Info("Preparing backing store in IBM Cloud")
+
+	var (
+		endpoint string
+		location string
+	)
+
 	cloudCredsSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      r.IBMCloudCreds.Spec.SecretRef.Name,
@@ -541,28 +547,64 @@ func (r *Reconciler) prepareIBMBackingStore() error {
 	util.KubeCheck(cloudCredsSecret)
 	if cloudCredsSecret.UID == "" {
 		// Secret not found
-		r.Logger.Infof("Secret %q not created yet. retry on next reconcile..", r.IBMCloudCreds.Spec.SecretRef.Name)
-		return fmt.Errorf("cloud credentials secret %q is not ready yet", r.IBMCloudCreds.Spec.SecretRef.Name)
+		r.Logger.Errorf("Cloud credentials secret %q is not ready yet", r.IBMCloudCreds.Spec.SecretRef.Name)
+		return fmt.Errorf("Cloud credentials secret %q is not ready yet", r.IBMCloudCreds.Spec.SecretRef.Name)
+	}
+
+	if val, ok := cloudCredsSecret.StringData["IBM_COS_Endpoint"]; ok {
+		// Use the endpoint provided in the secret
+		endpoint = val
+		if val, ok := cloudCredsSecret.StringData["IBM_COS_Location"]; ok {
+			location = val
+		}
+	} else {
+		// Endpoint not provided in the secret, construct one based on the cluster's region
+		// https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-endpoints#endpoints
+		region, err := util.GetIBMRegion()
+		if err != nil {
+			r.Logger.Errorf("Failed to get IBM Region. %q", err)
+			return fmt.Errorf("Failed to get IBM Region")
+		}
+		// https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-classes#classes-locationconstraint
+		endpoint = "https://s3.direct." + region + ".cloud-object-storage.appdomain.cloud"
+		location = region + "-standard"
+	}
+
+	if _, err := url.Parse(endpoint); err != nil {
+		r.Logger.Errorf("Invalid formate URL %q", endpoint)
+		return fmt.Errorf("Invalid formate URL %q", endpoint)
+	}
+
+	r.Logger.Infof("IBM COS Endpoint: %s   LocationConstraint: %s", endpoint, location)
+
+	var accessKeyID string
+	if val, ok := cloudCredsSecret.StringData["IBM_COS_ACCESS_KEY_ID"]; ok {
+		accessKeyID = val
+	} else {
+		r.Logger.Errorf("Missing IBM_COS_ACCESS_KEY_ID in the secret")
+		return fmt.Errorf("Missing IBM_COS_ACCESS_KEY_ID in the secret")
+	}
+
+	var secretAccessKey string
+	if val, ok := cloudCredsSecret.StringData["IBM_COS_SECRET_ACCESS_KEY"]; ok {
+		secretAccessKey = val
+	} else {
+		r.Logger.Errorf("Missing IBM_COS_SECRET_ACCESS_KEY in the secret")
+		return fmt.Errorf("Missing IBM_COS_SECRET_ACCESS_KEY in the secret")
 	}
 
 	bucketName := r.generateBackingStoreTargetName()
-	endpoint := cloudCredsSecret.StringData["Endpoint"]
-	region := cloudCredsSecret.StringData["Location"]
-	r.Logger.Infof("Bucket: %s", bucketName)
-	r.Logger.Infof("Endpoint: %s", endpoint)
-	r.Logger.Infof("Location: %s", region)
+	r.Logger.Infof("IBM COS Bucket Name: %s", bucketName)
 
-	// https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-classes#classes-locationconstraint
-	// https://cloud.ibm.com/docs/cloud-object-storage?topic=cloud-object-storage-endpoints#endpoints
 	s3Config := &aws.Config{
 		S3ForcePathStyle: aws.Bool(true),
 		Endpoint:         aws.String(endpoint),
 		Credentials: credentials.NewStaticCredentials(
-			cloudCredsSecret.StringData["IBM_COS_ACCESS_KEY_ID"],
-			cloudCredsSecret.StringData["IBM_COS_SECRET_ACCESS_KEY"],
+			accessKeyID,
+			secretAccessKey,
 			"",
 		),
-		Region: &region,
+		Region: &location,
 	}
 	if err := r.createS3BucketForBackingStore(s3Config, bucketName); err != nil {
 		return err
